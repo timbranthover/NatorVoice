@@ -68,6 +68,7 @@ type VoiceSettingsBody = {
 
 const MAX_TEXT_LENGTH = 1200;
 const USER_SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
+const PBKDF2_ITERATIONS = 100_000;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -114,25 +115,88 @@ function parseErrorMessage(payload: unknown) {
     }
   }
 
+  if (payload && typeof payload === "object" && "detail" in payload) {
+    const detail = (payload as { detail?: unknown }).detail;
+    if (detail && typeof detail === "object" && "message" in detail) {
+      const message = (detail as { message?: unknown }).message;
+      if (typeof message === "string" && message.length > 0) {
+        return message;
+      }
+    }
+
+    if (typeof detail === "string" && detail.length > 0) {
+      return detail;
+    }
+  }
+
   return "Request failed.";
-}
-
-function base64UrlEncode(input: string) {
-  const encoded = btoa(input);
-  return encoded.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-
-function base64UrlDecode(input: string) {
-  const padded = `${input}${"=".repeat((4 - (input.length % 4)) % 4)}`
-    .replace(/-/g, "+")
-    .replace(/_/g, "/");
-  return atob(padded);
 }
 
 function bytesToHex(bytes: Uint8Array) {
   return Array.from(bytes)
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
+}
+
+const BASE64_TABLE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+function bytesToBase64(bytes: Uint8Array) {
+  let output = "";
+
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes[i] ?? 0;
+    const b = bytes[i + 1] ?? 0;
+    const c = bytes[i + 2] ?? 0;
+    const triple = (a << 16) | (b << 8) | c;
+
+    output += BASE64_TABLE[(triple >> 18) & 63];
+    output += BASE64_TABLE[(triple >> 12) & 63];
+    output += i + 1 < bytes.length ? BASE64_TABLE[(triple >> 6) & 63] : "=";
+    output += i + 2 < bytes.length ? BASE64_TABLE[triple & 63] : "=";
+  }
+
+  return output;
+}
+
+function base64ToBytes(base64: string) {
+  const clean = base64.replace(/[^A-Za-z0-9+/=]/g, "");
+  const bytes: number[] = [];
+
+  for (let i = 0; i < clean.length; i += 4) {
+    const c1 = BASE64_TABLE.indexOf(clean[i] ?? "");
+    const c2 = BASE64_TABLE.indexOf(clean[i + 1] ?? "");
+    const c3 = clean[i + 2] === "=" ? -1 : BASE64_TABLE.indexOf(clean[i + 2] ?? "");
+    const c4 = clean[i + 3] === "=" ? -1 : BASE64_TABLE.indexOf(clean[i + 3] ?? "");
+
+    if (c1 < 0 || c2 < 0 || c3 < -1 || c4 < -1) {
+      throw new Error("Invalid base64 input.");
+    }
+
+    const triple = (c1 << 18) | (c2 << 12) | ((c3 > -1 ? c3 : 0) << 6) | (c4 > -1 ? c4 : 0);
+    bytes.push((triple >> 16) & 255);
+
+    if (c3 > -1) {
+      bytes.push((triple >> 8) & 255);
+    }
+
+    if (c4 > -1) {
+      bytes.push(triple & 255);
+    }
+  }
+
+  return new Uint8Array(bytes);
+}
+
+function base64UrlEncodeUtf8(input: string) {
+  const encoded = bytesToBase64(new TextEncoder().encode(input));
+  return encoded.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function base64UrlDecodeUtf8(input: string) {
+  const padded = `${input}${"=".repeat((4 - (input.length % 4)) % 4)}`
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+  return new TextDecoder().decode(base64ToBytes(padded));
 }
 
 async function hmacSha256(value: string, secret: string) {
@@ -145,7 +209,10 @@ async function hmacSha256(value: string, secret: string) {
   );
 
   const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value));
-  return base64UrlEncode(String.fromCharCode(...new Uint8Array(signature)));
+  return bytesToBase64(new Uint8Array(signature))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
 }
 
 async function sha256Hex(value: string) {
@@ -167,7 +234,7 @@ async function hashPassword(password: string, salt: string) {
       name: "PBKDF2",
       hash: "SHA-256",
       salt: new TextEncoder().encode(salt),
-      iterations: 120_000,
+      iterations: PBKDF2_ITERATIONS,
     },
     imported,
     256,
@@ -182,6 +249,14 @@ function randomHex(bytes: number) {
   return bytesToHex(out);
 }
 
+function createId() {
+  if (typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return randomHex(16);
+}
+
 async function createSessionToken(user: { id: string; email: string }, env: Env) {
   const now = Math.floor(Date.now() / 1000);
   const payload = {
@@ -191,8 +266,8 @@ async function createSessionToken(user: { id: string; email: string }, env: Env)
     exp: now + USER_SESSION_TTL_SECONDS,
   };
 
-  const header = base64UrlEncode(JSON.stringify({ typ: "JWT", alg: "HS256" }));
-  const encodedPayload = base64UrlEncode(JSON.stringify(payload));
+  const header = base64UrlEncodeUtf8(JSON.stringify({ typ: "JWT", alg: "HS256" }));
+  const encodedPayload = base64UrlEncodeUtf8(JSON.stringify(payload));
   const signature = await hmacSha256(`${header}.${encodedPayload}`, env.SESSION_SECRET);
   return `${header}.${encodedPayload}.${signature}`;
 }
@@ -211,7 +286,7 @@ async function verifySessionToken(token: string, env: Env) {
 
   let parsed: { sub?: unknown; exp?: unknown };
   try {
-    parsed = JSON.parse(base64UrlDecode(payload)) as { sub?: unknown; exp?: unknown };
+    parsed = JSON.parse(base64UrlDecodeUtf8(payload)) as { sub?: unknown; exp?: unknown };
   } catch {
     return null;
   }
@@ -419,35 +494,49 @@ async function handleRegister(request: Request, env: Env, origin: string) {
     return json({ error: "Password must be 8-72 characters." }, 400, origin);
   }
 
-  const existing = await getUserByEmail(env, email);
-  if (existing) {
-    return json({ error: "An account with this email already exists." }, 400, origin);
-  }
+  try {
+    const existing = await getUserByEmail(env, email);
+    if (existing) {
+      return json({ error: "An account with this email already exists." }, 400, origin);
+    }
 
-  const salt = randomHex(16);
-  const passwordHash = await hashPassword(password, salt);
-  const user: UserRecord = {
-    id: crypto.randomUUID(),
-    email,
-    salt,
-    passwordHash,
-    createdAt: new Date().toISOString(),
-  };
+    const salt = randomHex(16);
+    const passwordHash = await hashPassword(password, salt);
+    const user: UserRecord = {
+      id: createId(),
+      email,
+      salt,
+      passwordHash,
+      createdAt: new Date().toISOString(),
+    };
 
-  await saveUser(env, user);
+    await saveUser(env, user);
 
-  const token = await createSessionToken(user, env);
-  return json(
-    {
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
+    const token = await createSessionToken(user, env);
+    return json(
+      {
+        token,
+        user: {
+          id: user.id,
+          email: user.email,
+        },
       },
-    },
-    200,
-    origin,
-  );
+      200,
+      origin,
+    );
+  } catch (error) {
+    console.error("register_failed", error);
+    const reason = error instanceof Error ? error.message : "unknown register failure";
+    return json(
+      {
+        error:
+          "Registration is temporarily unavailable. You can still generate clips anonymously.",
+        reason,
+      },
+      503,
+      origin,
+    );
+  }
 }
 
 async function handleLogin(request: Request, env: Env, origin: string) {
@@ -526,7 +615,7 @@ async function handleClips(request: Request, env: Env, origin: string) {
 
     const existing = await getClips(env, user.id);
     const next: ClipRecord = {
-      id: crypto.randomUUID(),
+      id: createId(),
       text: text.slice(0, MAX_TEXT_LENGTH),
       voiceId: voiceId.slice(0, 120),
       voiceName: voiceName.slice(0, 120),
@@ -637,7 +726,15 @@ async function handleTts(request: Request, env: Env, origin: string) {
     }
 
     if (upstream.status === 401 || upstream.status === 403) {
-      return json({ error: "ElevenLabs authentication failed." }, 401, origin);
+      return json(
+        {
+          error:
+            upstreamError ||
+            "ElevenLabs authentication failed. Refresh ELEVENLABS_API_KEY in Worker secrets.",
+        },
+        401,
+        origin,
+      );
     }
 
     return json({ error: upstreamError || "TTS generation failed." }, 400, origin);
@@ -683,14 +780,27 @@ export default {
       return json({ error: "Missing ELEVENLABS_API_KEY secret in worker." }, 500, origin);
     }
 
-    if (!env.SESSION_SECRET) {
-      return json({ error: "Missing SESSION_SECRET secret in worker." }, 500, origin);
-    }
-
     const url = new URL(request.url);
     const pathname = url.pathname;
 
     try {
+      if (request.method === "GET" && pathname === "/api/health") {
+        return json(
+          {
+            ok: true,
+            hasElevenLabsKey: !!env.ELEVENLABS_API_KEY,
+            hasSessionSecret: !!env.SESSION_SECRET,
+            hasKvBinding: typeof env.NATOR_KV?.get === "function",
+          },
+          200,
+          origin,
+        );
+      }
+
+      if (!env.SESSION_SECRET && pathname.startsWith("/api/auth")) {
+        return json({ error: "Missing SESSION_SECRET secret in worker." }, 500, origin);
+      }
+
       if (request.method === "GET" && pathname === "/api/voices") {
         return await handleVoices(request, env, origin);
       }
@@ -720,8 +830,11 @@ export default {
       }
 
       return json({ error: "Not found." }, 404, origin);
-    } catch {
-      return json({ error: "Internal worker error." }, 500, origin);
+    } catch (error) {
+      console.error("worker_unhandled_error", pathname, error);
+      const reason =
+        error instanceof Error && error.message ? error.message : "unexpected runtime exception";
+      return json({ error: "Internal worker error.", reason }, 500, origin);
     }
   },
 };
