@@ -4,8 +4,8 @@ compatibility_date = "2025-12-15"
 
 [[kv_namespaces]]
 binding = "NATOR_KV"
-id = "REPLACE_WITH_KV_ID"
-preview_id = "REPLACE_WITH_PREVIEW_KV_ID"
+id = "fbbcda2a9d57426f8f35713030fe2f54"
+preview_id = "059f8a0d7cf845e6bfc782d67ed08642"
 
 [vars]
 DAILY_CHAR_LIMIT = "5500"
