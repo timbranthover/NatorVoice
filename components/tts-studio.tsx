@@ -87,6 +87,17 @@ type CloudAuthResponse = {
   user: CloudUser;
 };
 
+type ProviderCapabilities = {
+  modelSelection: boolean;
+  voiceSettings: boolean;
+};
+
+type VoicesResponse = {
+  voices?: unknown;
+  provider?: unknown;
+  capabilities?: unknown;
+};
+
 const MAX_TEXT_LENGTH = 1200;
 const MAX_HISTORY_ITEMS = 8;
 const HISTORY_STORAGE_KEY = "voice-prj-recent-clips";
@@ -288,6 +299,11 @@ export function TtsStudio() {
   const [selectedModelId, setSelectedModelId] = useState(
     MODEL_OPTIONS[0]?.id ?? "eleven_multilingual_v2",
   );
+  const [providerCapabilities, setProviderCapabilities] = useState<ProviderCapabilities>({
+    modelSelection: true,
+    voiceSettings: true,
+  });
+  const [ttsProvider, setTtsProvider] = useState<"elevenlabs" | "deepgram" | null>(null);
   const [voicesLoading, setVoicesLoading] = useState(true);
   const [voicesError, setVoicesError] = useState("");
 
@@ -365,6 +381,8 @@ export function TtsStudio() {
     text.length <= MAX_TEXT_LENGTH &&
     !!selectedVoiceId &&
     !overLimit;
+
+  const showVoiceControls = providerCapabilities.modelSelection || providerCapabilities.voiceSettings;
 
   const updateUsageAfterGenerate = (chars: number, response: Response) => {
     const usedHeader = response.headers.get("x-usage-used");
@@ -508,8 +526,8 @@ export function TtsStudio() {
         body: JSON.stringify({
           text: trimmedText,
           voiceId: selectedVoiceId,
-          modelId: selectedModelId,
-          voiceSettings: settings,
+          ...(providerCapabilities.modelSelection ? { modelId: selectedModelId } : {}),
+          ...(providerCapabilities.voiceSettings ? { voiceSettings: settings } : {}),
         }),
       });
 
@@ -728,14 +746,41 @@ export function TtsStudio() {
 
         const nextVoices =
           payload && typeof payload === "object" && "voices" in payload
-            ? (((payload as { voices?: unknown }).voices as Voice[] | undefined) ?? [])
+            ? (((payload as VoicesResponse).voices as Voice[] | undefined) ?? [])
             : [];
+
+        const rawProvider =
+          payload && typeof payload === "object" && "provider" in payload
+            ? (payload as VoicesResponse).provider
+            : null;
+        const nextProvider =
+          rawProvider === "deepgram" || rawProvider === "elevenlabs" ? rawProvider : null;
+
+        const rawCapabilities =
+          payload && typeof payload === "object" && "capabilities" in payload
+            ? (payload as VoicesResponse).capabilities
+            : null;
+        const capabilityMap =
+          rawCapabilities && typeof rawCapabilities === "object"
+            ? (rawCapabilities as Partial<ProviderCapabilities>)
+            : {};
+
+        const capabilities: ProviderCapabilities = {
+          modelSelection:
+            typeof capabilityMap.modelSelection === "boolean"
+              ? capabilityMap.modelSelection
+              : true,
+          voiceSettings:
+            typeof capabilityMap.voiceSettings === "boolean" ? capabilityMap.voiceSettings : true,
+        };
 
         if (!isActive) {
           return;
         }
 
         setVoices(nextVoices);
+        setTtsProvider(nextProvider);
+        setProviderCapabilities(capabilities);
         setSelectedVoiceId((current) => current || nextVoices[0]?.id || "");
       } catch (error) {
         if (!isActive) {
@@ -971,102 +1016,118 @@ export function TtsStudio() {
             <div className="rounded-2xl border border-stone-900/10 bg-white/70 p-3">
               <div className="mb-2 flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-stone-800">Voice Controls</h3>
-                <Badge variant="neutral">V2</Badge>
+                <Badge variant="neutral">{ttsProvider === "deepgram" ? "Optimized" : "V2"}</Badge>
               </div>
 
-              <div className="space-y-3">
-                <div className="flex flex-wrap gap-2">
-                  {PRESETS.map((preset) => (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      className={cn(
-                        "rounded-full px-3 py-1.5 text-xs font-semibold transition",
-                        activePresetId === preset.id
-                          ? "bg-amber-500 text-stone-950"
-                          : "bg-stone-900/8 text-stone-700 hover:bg-stone-900/14",
-                      )}
-                      onClick={() => handleApplyPreset(preset)}
-                      title={preset.description}
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
+              {showVoiceControls ? (
+                <div className="space-y-3">
+                  {providerCapabilities.voiceSettings && (
+                    <div className="flex flex-wrap gap-2">
+                      {PRESETS.map((preset) => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          className={cn(
+                            "rounded-full px-3 py-1.5 text-xs font-semibold transition",
+                            activePresetId === preset.id
+                              ? "bg-amber-500 text-stone-950"
+                              : "bg-stone-900/8 text-stone-700 hover:bg-stone-900/14",
+                          )}
+                          onClick={() => handleApplyPreset(preset)}
+                          title={preset.description}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {providerCapabilities.modelSelection && (
+                    <label className="space-y-1.5" htmlFor="model-select">
+                      <span className="text-xs text-stone-600">Model</span>
+                      <select
+                        id="model-select"
+                        className="h-10 w-full rounded-xl border border-stone-900/10 bg-white/95 px-3 text-sm text-stone-900 outline-none transition focus-visible:ring-2 focus-visible:ring-amber-400/60"
+                        value={selectedModelId}
+                        onChange={(event) => setSelectedModelId(event.target.value)}
+                      >
+                        {MODEL_OPTIONS.map((model) => (
+                          <option key={model.id} value={model.id}>
+                            {model.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+
+                  {providerCapabilities.voiceSettings && (
+                    <>
+                      <SliderControl
+                        id="stability"
+                        label="Stability"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={settings.stability}
+                        onChange={(value) =>
+                          setSettings((current) => ({ ...current, stability: value }))
+                        }
+                      />
+
+                      <SliderControl
+                        id="similarity"
+                        label="Similarity"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={settings.similarityBoost}
+                        onChange={(value) =>
+                          setSettings((current) => ({ ...current, similarityBoost: value }))
+                        }
+                      />
+
+                      <SliderControl
+                        id="style"
+                        label="Style"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={settings.style}
+                        onChange={(value) => setSettings((current) => ({ ...current, style: value }))}
+                      />
+
+                      <SliderControl
+                        id="speed"
+                        label="Speed"
+                        min={0.7}
+                        max={1.2}
+                        step={0.01}
+                        value={settings.speed}
+                        onChange={(value) => setSettings((current) => ({ ...current, speed: value }))}
+                      />
+
+                      <label className="flex items-center justify-between rounded-xl border border-stone-900/10 bg-white/85 px-3 py-2 text-sm">
+                        <span className="text-stone-700">Speaker boost</span>
+                        <input
+                          type="checkbox"
+                          checked={settings.useSpeakerBoost}
+                          onChange={(event) =>
+                            setSettings((current) => ({
+                              ...current,
+                              useSpeakerBoost: event.target.checked,
+                            }))
+                          }
+                          className="size-4 rounded accent-amber-500"
+                        />
+                      </label>
+                    </>
+                  )}
                 </div>
-
-                <label className="space-y-1.5" htmlFor="model-select">
-                  <span className="text-xs text-stone-600">Model</span>
-                  <select
-                    id="model-select"
-                    className="h-10 w-full rounded-xl border border-stone-900/10 bg-white/95 px-3 text-sm text-stone-900 outline-none transition focus-visible:ring-2 focus-visible:ring-amber-400/60"
-                    value={selectedModelId}
-                    onChange={(event) => setSelectedModelId(event.target.value)}
-                  >
-                    {MODEL_OPTIONS.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <SliderControl
-                  id="stability"
-                  label="Stability"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={settings.stability}
-                  onChange={(value) => setSettings((current) => ({ ...current, stability: value }))}
-                />
-
-                <SliderControl
-                  id="similarity"
-                  label="Similarity"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={settings.similarityBoost}
-                  onChange={(value) =>
-                    setSettings((current) => ({ ...current, similarityBoost: value }))
-                  }
-                />
-
-                <SliderControl
-                  id="style"
-                  label="Style"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={settings.style}
-                  onChange={(value) => setSettings((current) => ({ ...current, style: value }))}
-                />
-
-                <SliderControl
-                  id="speed"
-                  label="Speed"
-                  min={0.7}
-                  max={1.2}
-                  step={0.01}
-                  value={settings.speed}
-                  onChange={(value) => setSettings((current) => ({ ...current, speed: value }))}
-                />
-
-                <label className="flex items-center justify-between rounded-xl border border-stone-900/10 bg-white/85 px-3 py-2 text-sm">
-                  <span className="text-stone-700">Speaker boost</span>
-                  <input
-                    type="checkbox"
-                    checked={settings.useSpeakerBoost}
-                    onChange={(event) =>
-                      setSettings((current) => ({
-                        ...current,
-                        useSpeakerBoost: event.target.checked,
-                      }))
-                    }
-                    className="size-4 rounded accent-amber-500"
-                  />
-                </label>
-              </div>
+              ) : (
+                <p className="text-xs text-stone-600">
+                  This provider uses optimized defaults. Pick a voice and generate.
+                </p>
+              )}
             </div>
 
             <motion.div whileTap={{ scale: 0.98 }}>

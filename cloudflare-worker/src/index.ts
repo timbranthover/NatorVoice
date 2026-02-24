@@ -7,8 +7,11 @@ interface KVNamespace {
 
 export interface Env {
   NATOR_KV: KVNamespace;
-  ELEVENLABS_API_KEY: string;
+  ELEVENLABS_API_KEY?: string;
+  DEEPGRAM_API_KEY?: string;
+  TTS_PROVIDER?: string;
   ELEVENLABS_BASE_URL?: string;
+  DEEPGRAM_BASE_URL?: string;
   ELEVENLABS_MODEL_ID?: string;
   SESSION_SECRET: string;
   DAILY_CHAR_LIMIT?: string;
@@ -33,6 +36,8 @@ type PublicVoice = {
   age: string | null;
   previewUrl: string | null;
 };
+
+type TtsProvider = "elevenlabs" | "deepgram";
 
 type UserRecord = {
   id: string;
@@ -69,6 +74,261 @@ type VoiceSettingsBody = {
 const MAX_TEXT_LENGTH = 1200;
 const USER_SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
 const PBKDF2_ITERATIONS = 100_000;
+
+const DEEPGRAM_VOICE_CATALOG: PublicVoice[] = [
+  {
+    id: "aura-2-thalia-en",
+    name: "Thalia",
+    category: "English",
+    accent: "American",
+    gender: "feminine",
+    age: "Adult",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-andromeda-en",
+    name: "Andromeda",
+    category: "English",
+    accent: "American",
+    gender: "feminine",
+    age: "Adult",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-helena-en",
+    name: "Helena",
+    category: "English",
+    accent: "American",
+    gender: "feminine",
+    age: "Adult",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-apollo-en",
+    name: "Apollo",
+    category: "English",
+    accent: "American",
+    gender: "masculine",
+    age: "Adult",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-arcas-en",
+    name: "Arcas",
+    category: "English",
+    accent: "American",
+    gender: "masculine",
+    age: "Adult",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-aries-en",
+    name: "Aries",
+    category: "English",
+    accent: "American",
+    gender: "masculine",
+    age: "Adult",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-asteria-en",
+    name: "Asteria",
+    category: "English",
+    accent: "American",
+    gender: "feminine",
+    age: "Adult",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-athena-en",
+    name: "Athena",
+    category: "English",
+    accent: "American",
+    gender: "feminine",
+    age: "Mature",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-draco-en",
+    name: "Draco",
+    category: "English",
+    accent: "British",
+    gender: "masculine",
+    age: "Adult",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-hyperion-en",
+    name: "Hyperion",
+    category: "English",
+    accent: "Australian",
+    gender: "masculine",
+    age: "Adult",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-luna-en",
+    name: "Luna",
+    category: "English",
+    accent: "American",
+    gender: "feminine",
+    age: "Young Adult",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-orion-en",
+    name: "Orion",
+    category: "English",
+    accent: "American",
+    gender: "masculine",
+    age: "Adult",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-pandora-en",
+    name: "Pandora",
+    category: "English",
+    accent: "British",
+    gender: "feminine",
+    age: "Adult",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-zeus-en",
+    name: "Zeus",
+    category: "English",
+    accent: "American",
+    gender: "masculine",
+    age: "Adult",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-celeste-es",
+    name: "Celeste",
+    category: "Spanish",
+    accent: "Colombian",
+    gender: "feminine",
+    age: "Young Adult",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-estrella-es",
+    name: "Estrella",
+    category: "Spanish",
+    accent: "Mexican",
+    gender: "feminine",
+    age: "Mature",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-nestor-es",
+    name: "Nestor",
+    category: "Spanish",
+    accent: "Peninsular",
+    gender: "masculine",
+    age: "Adult",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-javier-es",
+    name: "Javier",
+    category: "Spanish",
+    accent: "Mexican",
+    gender: "masculine",
+    age: "Adult",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-rhea-nl",
+    name: "Rhea",
+    category: "Dutch",
+    accent: "Dutch",
+    gender: "feminine",
+    age: "Adult",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-sander-nl",
+    name: "Sander",
+    category: "Dutch",
+    accent: "Dutch",
+    gender: "masculine",
+    age: "Adult",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-agathe-fr",
+    name: "Agathe",
+    category: "French",
+    accent: "French",
+    gender: "feminine",
+    age: "Adult",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-hector-fr",
+    name: "Hector",
+    category: "French",
+    accent: "French",
+    gender: "masculine",
+    age: "Adult",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-julius-de",
+    name: "Julius",
+    category: "German",
+    accent: "German",
+    gender: "masculine",
+    age: "Adult",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-viktoria-de",
+    name: "Viktoria",
+    category: "German",
+    accent: "German",
+    gender: "feminine",
+    age: "Adult",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-livia-it",
+    name: "Livia",
+    category: "Italian",
+    accent: "Italian",
+    gender: "feminine",
+    age: "Adult",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-dionisio-it",
+    name: "Dionisio",
+    category: "Italian",
+    accent: "Italian",
+    gender: "masculine",
+    age: "Adult",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-fujin-ja",
+    name: "Fujin",
+    category: "Japanese",
+    accent: "Japanese",
+    gender: "masculine",
+    age: "Adult",
+    previewUrl: null,
+  },
+  {
+    id: "aura-2-izanami-ja",
+    name: "Izanami",
+    category: "Japanese",
+    accent: "Japanese",
+    gender: "feminine",
+    age: "Adult",
+    previewUrl: null,
+  },
+];
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -115,6 +375,13 @@ function parseErrorMessage(payload: unknown) {
     }
   }
 
+  if (payload && typeof payload === "object" && "message" in payload) {
+    const candidate = (payload as { message?: unknown }).message;
+    if (typeof candidate === "string" && candidate.length > 0) {
+      return candidate;
+    }
+  }
+
   if (payload && typeof payload === "object" && "detail" in payload) {
     const detail = (payload as { detail?: unknown }).detail;
     if (detail && typeof detail === "object" && "message" in detail) {
@@ -129,7 +396,7 @@ function parseErrorMessage(payload: unknown) {
     }
   }
 
-  return "Request failed.";
+  return "";
 }
 
 function bytesToHex(bytes: Uint8Array) {
@@ -335,8 +602,49 @@ function anonDayLimit(env: Env) {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 1400;
 }
 
-function voiceEndpointBase(env: Env) {
+function normalizeProvider(value: string | undefined): TtsProvider | null {
+  const candidate = value?.trim().toLowerCase();
+  if (candidate === "elevenlabs" || candidate === "deepgram") {
+    return candidate;
+  }
+
+  return null;
+}
+
+function resolveProvider(env: Env): TtsProvider {
+  const hasDeepgram = Boolean(env.DEEPGRAM_API_KEY);
+  const hasElevenLabs = Boolean(env.ELEVENLABS_API_KEY);
+  const configured = normalizeProvider(env.TTS_PROVIDER);
+
+  if (configured === "deepgram") {
+    if (hasDeepgram) {
+      return "deepgram";
+    }
+
+    return hasElevenLabs ? "elevenlabs" : "deepgram";
+  }
+
+  if (configured === "elevenlabs") {
+    if (hasElevenLabs) {
+      return "elevenlabs";
+    }
+
+    return hasDeepgram ? "deepgram" : "elevenlabs";
+  }
+
+  if (hasDeepgram) {
+    return "deepgram";
+  }
+
+  return "elevenlabs";
+}
+
+function elevenLabsEndpointBase(env: Env) {
   return env.ELEVENLABS_BASE_URL?.replace(/\/$/, "") || "https://api.elevenlabs.io";
+}
+
+function deepgramEndpointBase(env: Env) {
+  return env.DEEPGRAM_BASE_URL?.replace(/\/$/, "") || "https://api.deepgram.com";
 }
 
 function parseVoices(payload: unknown) {
@@ -432,7 +740,33 @@ async function setUsage(env: Env, identity: string, day: string, used: number) {
   await env.NATOR_KV.put(`usage:${identity}:${day}`, String(used));
 }
 
-async function handleVoices(request: Request, env: Env, origin: string) {
+async function handleVoices(_request: Request, env: Env, origin: string) {
+  const provider = resolveProvider(env);
+
+  if (provider === "deepgram") {
+    if (!env.DEEPGRAM_API_KEY) {
+      return json({ error: "Missing DEEPGRAM_API_KEY secret in worker." }, 500, origin);
+    }
+
+    const voices = [...DEEPGRAM_VOICE_CATALOG].sort((a, b) => a.name.localeCompare(b.name));
+    return json(
+      {
+        provider,
+        capabilities: {
+          modelSelection: false,
+          voiceSettings: false,
+        },
+        voices,
+      },
+      200,
+      origin,
+    );
+  }
+
+  if (!env.ELEVENLABS_API_KEY) {
+    return json({ error: "Missing ELEVENLABS_API_KEY secret in worker." }, 500, origin);
+  }
+
   const candidatePaths = [
     "/v2/voices?page_size=100&include_total_count=false",
     "/v1/voices?show_legacy=true",
@@ -442,7 +776,7 @@ async function handleVoices(request: Request, env: Env, origin: string) {
   let lastResponse: Response | null = null;
 
   for (const path of candidatePaths) {
-    const response = await fetch(`${voiceEndpointBase(env)}${path}`, {
+    const response = await fetch(`${elevenLabsEndpointBase(env)}${path}`, {
       method: "GET",
       headers: {
         "xi-api-key": env.ELEVENLABS_API_KEY,
@@ -461,7 +795,18 @@ async function handleVoices(request: Request, env: Env, origin: string) {
         .filter((voice): voice is PublicVoice => voice !== null)
         .sort((a, b) => a.name.localeCompare(b.name));
 
-      return json({ voices }, 200, origin);
+      return json(
+        {
+          provider,
+          capabilities: {
+            modelSelection: true,
+            voiceSettings: true,
+          },
+          voices,
+        },
+        200,
+        origin,
+      );
     }
 
     lastResponse = response;
@@ -656,6 +1001,16 @@ async function handleUsage(request: Request, env: Env, origin: string) {
 }
 
 async function handleTts(request: Request, env: Env, origin: string) {
+  const provider = resolveProvider(env);
+
+  if (provider === "deepgram" && !env.DEEPGRAM_API_KEY) {
+    return json({ error: "Missing DEEPGRAM_API_KEY secret in worker." }, 500, origin);
+  }
+
+  if (provider === "elevenlabs" && !env.ELEVENLABS_API_KEY) {
+    return json({ error: "Missing ELEVENLABS_API_KEY secret in worker." }, 500, origin);
+  }
+
   const body = (await request.json().catch(() => ({}))) as TtsBody;
   const text = typeof body.text === "string" ? body.text.trim() : "";
   const voiceId = typeof body.voiceId === "string" ? body.voiceId.trim() : "";
@@ -695,26 +1050,54 @@ async function handleTts(request: Request, env: Env, origin: string) {
     );
   }
 
-  const endpoint = `${voiceEndpointBase(env)}/v1/text-to-speech/${encodeURIComponent(
-    voiceId,
-  )}?output_format=mp3_44100_128`;
-
-  const upstream = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "xi-api-key": env.ELEVENLABS_API_KEY,
-      "Content-Type": "application/json",
-      Accept: "audio/mpeg",
-    },
-    body: JSON.stringify({
-      text,
-      model_id: modelId,
-      voice_settings: parseVoiceSettings(body.voiceSettings),
-    }),
-  }).catch(() => null);
+  const upstream =
+    provider === "deepgram"
+      ? await fetch(
+          `${deepgramEndpointBase(env)}/v1/speak?model=${encodeURIComponent(
+            voiceId,
+          )}&encoding=mp3&sample_rate=44100`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Token ${env.DEEPGRAM_API_KEY as string}`,
+              "Content-Type": "application/json",
+              Accept: "audio/mpeg",
+            },
+            body: JSON.stringify({
+              text,
+            }),
+          },
+        ).catch(() => null)
+      : await fetch(
+          `${elevenLabsEndpointBase(env)}/v1/text-to-speech/${encodeURIComponent(
+            voiceId,
+          )}?output_format=mp3_44100_128`,
+          {
+            method: "POST",
+            headers: {
+              "xi-api-key": env.ELEVENLABS_API_KEY as string,
+              "Content-Type": "application/json",
+              Accept: "audio/mpeg",
+            },
+            body: JSON.stringify({
+              text,
+              model_id: modelId,
+              voice_settings: parseVoiceSettings(body.voiceSettings),
+            }),
+          },
+        ).catch(() => null);
 
   if (!upstream) {
-    return json({ error: "Network issue while reaching ElevenLabs." }, 502, origin);
+    return json(
+      {
+        error:
+          provider === "deepgram"
+            ? "Network issue while reaching Deepgram."
+            : "Network issue while reaching ElevenLabs.",
+      },
+      502,
+      origin,
+    );
   }
 
   if (!upstream.ok) {
@@ -722,7 +1105,16 @@ async function handleTts(request: Request, env: Env, origin: string) {
     const upstreamError = parseErrorMessage(payload);
 
     if (upstream.status === 429) {
-      return json({ error: "Rate limited by ElevenLabs. Try again shortly." }, 429, origin);
+      return json(
+        {
+          error:
+            provider === "deepgram"
+              ? "Rate limited by Deepgram. Try again shortly."
+              : "Rate limited by ElevenLabs. Try again shortly.",
+        },
+        429,
+        origin,
+      );
     }
 
     if (upstream.status === 401 || upstream.status === 403) {
@@ -730,7 +1122,9 @@ async function handleTts(request: Request, env: Env, origin: string) {
         {
           error:
             upstreamError ||
-            "ElevenLabs authentication failed. Refresh ELEVENLABS_API_KEY in Worker secrets.",
+            (provider === "deepgram"
+              ? "Deepgram authentication failed. Refresh DEEPGRAM_API_KEY in Worker secrets."
+              : "ElevenLabs authentication failed. Refresh ELEVENLABS_API_KEY in Worker secrets."),
         },
         401,
         origin,
@@ -742,7 +1136,16 @@ async function handleTts(request: Request, env: Env, origin: string) {
 
   const audioBuffer = await upstream.arrayBuffer().catch(() => null);
   if (!audioBuffer || audioBuffer.byteLength === 0) {
-    return json({ error: "ElevenLabs returned empty audio." }, 502, origin);
+    return json(
+      {
+        error:
+          provider === "deepgram"
+            ? "Deepgram returned empty audio."
+            : "ElevenLabs returned empty audio.",
+      },
+      502,
+      origin,
+    );
   }
 
   const usedAfter = usedBefore + text.length;
@@ -768,16 +1171,13 @@ async function handleTts(request: Request, env: Env, origin: string) {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const origin = allowedOrigin(request, env);
+    const provider = resolveProvider(env);
 
     if (request.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
         headers: corsHeaders(origin),
       });
-    }
-
-    if (!env.ELEVENLABS_API_KEY) {
-      return json({ error: "Missing ELEVENLABS_API_KEY secret in worker." }, 500, origin);
     }
 
     const url = new URL(request.url);
@@ -788,7 +1188,9 @@ export default {
         return json(
           {
             ok: true,
+            provider,
             hasElevenLabsKey: !!env.ELEVENLABS_API_KEY,
+            hasDeepgramKey: !!env.DEEPGRAM_API_KEY,
             hasSessionSecret: !!env.SESSION_SECRET,
             hasKvBinding: typeof env.NATOR_KV?.get === "function",
           },

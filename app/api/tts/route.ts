@@ -6,9 +6,13 @@ import { getCloudUsageWithLimit, incrementCloudUsage } from "@/lib/cloud-store";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+type TtsProvider = "elevenlabs" | "deepgram";
+
 const ELEVENLABS_BASE_URL =
   process.env.ELEVENLABS_BASE_URL?.replace(/\/$/, "") ?? "https://api.elevenlabs.io";
-const DEFAULT_MODEL_ID = process.env.ELEVENLABS_MODEL_ID ?? "eleven_multilingual_v2";
+const DEEPGRAM_BASE_URL =
+  process.env.DEEPGRAM_BASE_URL?.replace(/\/$/, "") ?? "https://api.deepgram.com";
+const DEFAULT_ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID ?? "eleven_multilingual_v2";
 const MAX_TEXT_LENGTH = 1200;
 const DEFAULT_DAILY_LIMIT = 5500;
 
@@ -27,9 +31,107 @@ type VoiceSettingsInput = {
   useSpeakerBoost?: unknown;
 };
 
-function normalizeClientError(status: number) {
+function normalizeProvider(value: string | undefined): TtsProvider | null {
+  const candidate = value?.trim().toLowerCase();
+  if (candidate === "elevenlabs" || candidate === "deepgram") {
+    return candidate;
+  }
+
+  return null;
+}
+
+function resolveProvider() {
+  const hasDeepgram = Boolean(process.env.DEEPGRAM_API_KEY?.trim());
+  const hasElevenLabs = Boolean(process.env.ELEVENLABS_API_KEY?.trim());
+  const configured = normalizeProvider(process.env.TTS_PROVIDER);
+
+  if (configured === "deepgram") {
+    if (hasDeepgram) {
+      return "deepgram";
+    }
+
+    return hasElevenLabs ? "elevenlabs" : "deepgram";
+  }
+
+  if (configured === "elevenlabs") {
+    if (hasElevenLabs) {
+      return "elevenlabs";
+    }
+
+    return hasDeepgram ? "deepgram" : "elevenlabs";
+  }
+
+  if (hasDeepgram) {
+    return "deepgram";
+  }
+
+  return "elevenlabs";
+}
+
+function parseProviderMessage(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const map = payload as Record<string, unknown>;
+
+  if (typeof map.error === "string" && map.error.trim().length > 0) {
+    return map.error;
+  }
+
+  if (typeof map.message === "string" && map.message.trim().length > 0) {
+    return map.message;
+  }
+
+  if (map.detail && typeof map.detail === "object") {
+    const detail = map.detail as Record<string, unknown>;
+    if (typeof detail.message === "string" && detail.message.trim().length > 0) {
+      return detail.message;
+    }
+  }
+
+  if (typeof map.detail === "string" && map.detail.trim().length > 0) {
+    return map.detail;
+  }
+
+  return null;
+}
+
+function normalizeClientError(provider: TtsProvider, status: number, upstreamMessage: string | null) {
+  if (provider === "deepgram") {
+    if (status === 401 || status === 403) {
+      return {
+        status: 401,
+        message:
+          upstreamMessage || "Deepgram authentication failed. Check DEEPGRAM_API_KEY and retry.",
+      };
+    }
+
+    if (status === 429) {
+      return { status: 429, message: "Deepgram rate limit reached. Try again shortly." };
+    }
+
+    if (status >= 400 && status < 500) {
+      return {
+        status: 400,
+        message:
+          upstreamMessage ||
+          "Invalid request for speech generation. Adjust text or voice and retry.",
+      };
+    }
+
+    return {
+      status: 502,
+      message: "Deepgram could not generate audio right now.",
+    };
+  }
+
   if (status === 401 || status === 403) {
-    return { status: 401, message: "ElevenLabs authentication failed. Check your API key." };
+    return {
+      status: 401,
+      message:
+        upstreamMessage || "ElevenLabs authentication failed. Check your API key and retry.",
+    };
   }
 
   if (status === 429) {
@@ -39,7 +141,9 @@ function normalizeClientError(status: number) {
   if (status >= 400 && status < 500) {
     return {
       status: 400,
-      message: "Invalid request for TTS generation. Adjust text or voice and retry.",
+      message:
+        upstreamMessage ||
+        "Invalid request for speech generation. Adjust text or voice and retry.",
     };
   }
 
@@ -94,12 +198,66 @@ function getDailyLimit() {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : DEFAULT_DAILY_LIMIT;
 }
 
-export async function POST(request: Request) {
-  const apiKey = process.env.ELEVENLABS_API_KEY;
+async function requestElevenLabs(
+  apiKey: string,
+  text: string,
+  voiceId: string,
+  modelId: string,
+  voiceSettings: ReturnType<typeof parseVoiceSettings>,
+) {
+  const endpoint = `${ELEVENLABS_BASE_URL}/v1/text-to-speech/${encodeURIComponent(
+    voiceId,
+  )}?output_format=mp3_44100_128`;
 
-  if (!apiKey) {
+  return fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "xi-api-key": apiKey,
+      "Content-Type": "application/json",
+      Accept: "audio/mpeg",
+    },
+    body: JSON.stringify({
+      text,
+      model_id: modelId,
+      voice_settings: voiceSettings,
+    }),
+    cache: "no-store",
+  });
+}
+
+async function requestDeepgram(apiKey: string, text: string, voiceId: string) {
+  const endpoint = new URL(`${DEEPGRAM_BASE_URL}/v1/speak`);
+  endpoint.searchParams.set("model", voiceId);
+  endpoint.searchParams.set("encoding", "mp3");
+  endpoint.searchParams.set("sample_rate", "44100");
+
+  return fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `Token ${apiKey}`,
+      "Content-Type": "application/json",
+      Accept: "audio/mpeg",
+    },
+    body: JSON.stringify({ text }),
+    cache: "no-store",
+  });
+}
+
+export async function POST(request: Request) {
+  const provider = resolveProvider();
+  const elevenLabsApiKey = process.env.ELEVENLABS_API_KEY;
+  const deepgramApiKey = process.env.DEEPGRAM_API_KEY;
+
+  if (provider === "elevenlabs" && !elevenLabsApiKey) {
     return NextResponse.json(
       { error: "Server is missing ELEVENLABS_API_KEY." },
+      { status: 500 },
+    );
+  }
+
+  if (provider === "deepgram" && !deepgramApiKey) {
+    return NextResponse.json(
+      { error: "Server is missing DEEPGRAM_API_KEY." },
       { status: 500 },
     );
   }
@@ -116,7 +274,7 @@ export async function POST(request: Request) {
   const modelId =
     typeof payload.modelId === "string" && payload.modelId.trim().length > 0
       ? payload.modelId.trim()
-      : DEFAULT_MODEL_ID;
+      : DEFAULT_ELEVENLABS_MODEL_ID;
   const voiceSettings = parseVoiceSettings(payload.voiceSettings);
 
   if (!text) {
@@ -153,35 +311,34 @@ export async function POST(request: Request) {
     }
   }
 
-  const endpoint = `${ELEVENLABS_BASE_URL}/v1/text-to-speech/${encodeURIComponent(
-    voiceId,
-  )}?output_format=mp3_44100_128`;
-
   let upstream: Response;
   try {
-    upstream = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "xi-api-key": apiKey,
-        "Content-Type": "application/json",
-        Accept: "audio/mpeg",
-      },
-      body: JSON.stringify({
-        text,
-        model_id: modelId,
-        voice_settings: voiceSettings,
-      }),
-      cache: "no-store",
-    });
+    upstream =
+      provider === "deepgram"
+        ? await requestDeepgram(deepgramApiKey as string, text, voiceId)
+        : await requestElevenLabs(
+            elevenLabsApiKey as string,
+            text,
+            voiceId,
+            modelId,
+            voiceSettings,
+          );
   } catch {
     return NextResponse.json(
-      { error: "Network issue while reaching ElevenLabs. Try again." },
+      {
+        error:
+          provider === "deepgram"
+            ? "Network issue while reaching Deepgram. Try again."
+            : "Network issue while reaching ElevenLabs. Try again.",
+      },
       { status: 502 },
     );
   }
 
   if (!upstream.ok) {
-    const { status, message } = normalizeClientError(upstream.status);
+    const upstreamPayload = (await upstream.json().catch(() => null)) as unknown;
+    const upstreamMessage = parseProviderMessage(upstreamPayload);
+    const { status, message } = normalizeClientError(provider, upstream.status, upstreamMessage);
     return NextResponse.json({ error: message }, { status });
   }
 
@@ -190,14 +347,24 @@ export async function POST(request: Request) {
     audioBuffer = await upstream.arrayBuffer();
   } catch {
     return NextResponse.json(
-      { error: "ElevenLabs returned an unreadable audio response." },
+      {
+        error:
+          provider === "deepgram"
+            ? "Deepgram returned an unreadable audio response."
+            : "ElevenLabs returned an unreadable audio response.",
+      },
       { status: 502 },
     );
   }
 
   if (!audioBuffer.byteLength) {
     return NextResponse.json(
-      { error: "ElevenLabs returned empty audio for this request." },
+      {
+        error:
+          provider === "deepgram"
+            ? "Deepgram returned empty audio for this request."
+            : "ElevenLabs returned empty audio for this request.",
+      },
       { status: 502 },
     );
   }

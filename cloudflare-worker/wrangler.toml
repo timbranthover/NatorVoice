@@ -8,6 +8,7 @@ id = "fbbcda2a9d57426f8f35713030fe2f54"
 preview_id = "059f8a0d7cf845e6bfc782d67ed08642"
 
 [vars]
+TTS_PROVIDER = "deepgram"
 DAILY_CHAR_LIMIT = "5500"
 ANON_DAILY_CHAR_LIMIT = "1400"
 ELEVENLABS_MODEL_ID = "eleven_multilingual_v2"

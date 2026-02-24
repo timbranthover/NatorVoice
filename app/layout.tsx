@@ -14,7 +14,7 @@ const sora = Sora({
 
 export const metadata: Metadata = {
   title: "NatorVoice Studio",
-  description: "Mobile-first ElevenLabs text-to-speech and sharing app.",
+  description: "Mobile-first text-to-speech and sharing app.",
 };
 
 export default function RootLayout({

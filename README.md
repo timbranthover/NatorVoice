@@ -1,177 +1,143 @@
 # NatorVoice
 
-Mobile-first ElevenLabs TTS app with a polished sharing workflow for iPhone/iMessage.
+Mobile-first TTS app for quick voice clips and easy iPhone sharing.
 
-## What is implemented
+## Current Provider Strategy
 
-- Text to speech generation with ElevenLabs (server-side only, API key never exposed to browser).
-- Searchable voice picker + model selection.
-- Advanced generation controls with presets:
-  - Stability
-  - Similarity
-  - Style
-  - Speed
-  - Speaker boost
-- Inline audio preview, waveform display, trim-silence export, reset-to-original.
-- Share flow optimized for iOS:
-  - Web Share API file share when supported
-  - Download fallback when file share is unsupported
-  - `Open Messages` helper action
-- Usage safeguards:
-  - Daily char usage meter
-  - 70%/90% warning states
-  - Hard block when request exceeds daily cap
-- Recent scripts:
-  - Local persistence
-  - Optional cloud sync across devices
-- Optional account auth for cloud sync (email + password) with token sessions.
+- Default provider: **Deepgram Aura** (more reliable fallback right now).
+- Preserved provider: **ElevenLabs** (kept in code; switchable by env var).
+- Provider switching is runtime-only. No code changes required.
 
-## Exact local setup (VS Code PowerShell)
+## Features
 
-1. Open terminal in VS Code.
-2. Run:
+- Script input with character guardrails.
+- Searchable voice picker.
+- Generate + inline preview + waveform + trim silence.
+- iPhone-first sharing flow:
+  - Web Share API when supported
+  - Download fallback
+  - Open Messages helper
+- Recent clip history + optional cloud sync (Worker KV).
+
+## Why A Server Is Required
+
+TTS providers require secret API keys. A static HTML-only site cannot keep those secrets private.  
+This app uses server endpoints (Next API routes locally, Cloudflare Worker in production) so keys stay off the client.
+
+## Local Setup (VS Code PowerShell)
 
 ```powershell
 cd c:\Users\mpbra\OneDrive\Tim\Voice_PRJ\web
-```
-
-3. Install deps:
-
-```powershell
 npm install
-```
-
-4. Create env file (if needed):
-
-```powershell
 Copy-Item .env.example .env.local -Force
 ```
 
-5. Put your ElevenLabs key in `.env.local`:
+Set `.env.local`:
 
 ```env
-ELEVENLABS_API_KEY=your_key_here
+TTS_PROVIDER=deepgram
+DEEPGRAM_API_KEY=your_deepgram_api_key
+ELEVENLABS_API_KEY=your_elevenlabs_api_key
 ELEVENLABS_MODEL_ID=eleven_multilingual_v2
 DAILY_CHAR_LIMIT=5500
 NEXT_PUBLIC_ENABLE_CLOUD_SYNC=false
 ```
 
-6. Start dev server:
+Run:
 
 ```powershell
 npm run dev
 ```
 
-7. Open:
+Open:
 
 ```text
 http://localhost:3000
 ```
 
-8. Stop server:
+## Provider Switching
 
-```text
-Ctrl + C
-```
+`.env.local` or Worker var:
 
-## Why this needs a server (not a static local HTML file)
+- `TTS_PROVIDER=deepgram` -> uses `DEEPGRAM_API_KEY`
+- `TTS_PROVIDER=elevenlabs` -> uses `ELEVENLABS_API_KEY`
 
-This app must call ElevenLabs with a secret API key. If you run as static HTML/JS only, the key would be exposed client-side. Server routes (Next API routes or Cloudflare Worker endpoints) keep the key private.
+Auto mode behavior (if `TTS_PROVIDER` not set):
+- Uses Deepgram if `DEEPGRAM_API_KEY` exists, else ElevenLabs.
 
-## Cloudflare Worker path (fully functional)
+## Cloudflare Worker (Production API)
 
-Yes. This repo includes `cloudflare-worker/` that supports:
+Worker path: `web/cloudflare-worker`
 
-- `/api/voices`
-- `/api/tts`
-- `/api/auth/register`
-- `/api/auth/login`
-- `/api/auth/me`
-- `/api/clips`
-- `/api/usage`
-
-### Deploy Worker
+### 1) Install and login
 
 ```powershell
 cd c:\Users\mpbra\OneDrive\Tim\Voice_PRJ\web\cloudflare-worker
 npm install
+npx wrangler login
 ```
 
-Create KV namespaces:
+### 2) KV namespaces
 
 ```powershell
 npx wrangler kv namespace create NATOR_KV
 npx wrangler kv namespace create NATOR_KV --preview
 ```
 
-Copy resulting IDs into `cloudflare-worker/wrangler.toml` for:
+Put returned IDs into `cloudflare-worker/wrangler.toml` (`id` + `preview_id`).
 
-- `id`
-- `preview_id`
-
-Set required secrets:
+### 3) Required Worker secrets
 
 ```powershell
-npx wrangler secret put ELEVENLABS_API_KEY
+npx wrangler secret put DEEPGRAM_API_KEY
 npx wrangler secret put SESSION_SECRET
 ```
 
-Optional secrets/vars:
+Optional (if keeping ElevenLabs path available in prod):
 
-- `DAILY_CHAR_LIMIT`
-- `ANON_DAILY_CHAR_LIMIT`
-- `ELEVENLABS_MODEL_ID`
-- `ALLOWED_ORIGIN`
+```powershell
+npx wrangler secret put ELEVENLABS_API_KEY
+```
 
-Deploy:
+### 4) Deploy
 
 ```powershell
 npx wrangler deploy
 ```
 
-You will get a Worker URL like:
+### 5) Verify health
 
 ```text
-https://natorvoice-api.<subdomain>.workers.dev
+https://natorvoice-api.<your-subdomain>.workers.dev/api/health
 ```
 
-### Point Next frontend at Worker
+You should see JSON with `ok: true`, `provider`, and key flags.
 
-In `web/.env.local`:
+## GitHub Pages Frontend
 
-```env
-NEXT_PUBLIC_ENABLE_CLOUD_SYNC=true
-NEXT_PUBLIC_API_BASE_URL=https://natorvoice-api.<subdomain>.workers.dev
+The repo includes a Pages workflow that exports static frontend and calls your Worker API.
+
+Current live URL pattern:
+
+```text
+https://timbranthover.github.io/NatorVoice/
 ```
 
-Then restart `npm run dev`.
+The workflow uses:
 
-## Vercel deployment
-
-If deploying Next frontend to Vercel, set env vars in Vercel project:
-
-- `ELEVENLABS_API_KEY`
-- `ELEVENLABS_MODEL_ID`
-- `DAILY_CHAR_LIMIT`
+- `NEXT_PUBLIC_API_BASE_URL`
 - `NEXT_PUBLIC_ENABLE_CLOUD_SYNC`
-- `NEXT_PUBLIC_API_BASE_URL` (set this to Worker URL when using Cloudflare backend)
 
 ## Security
 
-- `.env.local` is gitignored.
-- No API key should be committed.
-- Rotate keys immediately if they were ever exposed in plaintext in chats, commits, screenshots, or logs.
+- Never commit `.env.local`.
+- Never commit provider keys.
+- Use `wrangler secret put ...` for Cloudflare secrets.
+- Rotate any key that was ever shared in plaintext.
 
-## Product limitations (real platform constraints)
+## Known Platform Limits
 
-- Mobile web cannot reliably copy binary audio to iOS clipboard for paste into iMessage.
-- Reliable path remains: Share Sheet file share, or Download then attach from Files in Messages.
-
-## Architecture
-
-- Frontend: Next.js App Router + TypeScript + Tailwind + Framer Motion.
-- Local backend: Next API routes for ElevenLabs proxy, auth, clips, and usage.
-- Cloud backend option: Cloudflare Worker + KV for auth/clips/usage persistence.
-- Storage:
-  - Local history + local usage in browser localStorage
-  - Cloud history + usage in KV when cloud mode is enabled
+- iOS mobile web cannot reliably do “copy audio file to clipboard and paste into iMessage”.
+- Reliable flow remains:
+  - Share sheet -> Messages
+  - or Download -> attach from Files in Messages
